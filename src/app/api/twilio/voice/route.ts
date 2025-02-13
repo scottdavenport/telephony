@@ -27,12 +27,16 @@ export async function POST(request: Request) {
     // Create TwiML response
     const twiml = new VoiceResponse();
     
-    // Add gather for user input
+    // Add gather for user input with transcription
     const gather = twiml.gather({
-      input: 'speech dtmf',
+      input: 'speech',
       timeout: 3,
       action: '/api/twilio/voice/gather',
-      method: 'POST'
+      method: 'POST',
+      language: 'en-US',
+      speechTimeout: 'auto',
+      enhanced: true,
+      speechModel: 'phone_call'
     });
     
     gather.say(

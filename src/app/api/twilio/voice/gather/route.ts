@@ -4,29 +4,57 @@ import { broadcastEvent } from '@/lib/events';
 
 export async function POST(request: Request) {
   try {
-    // Get call information
+    // Get call information and speech results
     const body = await request.text();
     const params = new URLSearchParams(body);
     const callSid = params.get('CallSid');
+    const from = params.get('From');
+    const callerName = params.get('CallerName') || 'Unknown Caller';
+    const speechResult = params.get('SpeechResult');
+    const confidence = params.get('Confidence');
+
+    // Log transcription
+    if (speechResult) {
+      console.log('Speech detected:', {
+        callSid,
+        speechResult,
+        confidence
+      });
+
+      // Broadcast transcription event
+      broadcastEvent({
+        type: 'call-transcription',
+        callSid: callSid || null,
+        from: from || null,
+        callerName: callerName || null,
+        status: 'transcribing',
+        transcript: speechResult,
+        confidence: parseFloat(confidence || '0')
+      });
+    }
     
     // Broadcast call status
     broadcastEvent({
       type: 'call-status-update',
       callSid: callSid || null,
-      from: null,
-      callerName: null,
+      from: from || null,
+      callerName: callerName || null,
       status: 'in-progress'
     });
 
     // Create TwiML response
     const twiml = new VoiceResponse();
     
-    // Add gather for continuous interaction
+    // Add gather for continuous interaction with transcription
     const gather = twiml.gather({
-      input: 'speech dtmf',
+      input: 'speech',
       timeout: 10,
       action: '/api/twilio/voice/gather',
-      method: 'POST'
+      method: 'POST',
+      language: 'en-US',
+      speechTimeout: 'auto',
+      enhanced: true,
+      speechModel: 'phone_call'
     });
     
     gather.say(

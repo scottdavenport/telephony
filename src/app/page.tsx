@@ -8,6 +8,8 @@ interface CallInfo {
   phoneNumber: string;
   startTime: string;
   status: string;
+  transcript?: string;
+  confidence?: number;
 }
 
 export default function Home() {
@@ -19,38 +21,100 @@ export default function Home() {
   });
 
   useEffect(() => {
-    // Set up EventSource for Server-Sent Events
-    const eventSource = new EventSource('/api/twilio/events');
+    let eventSource: EventSource | null = null;
+    let mounted = true;
 
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'initial-state' && data.currentCall) {
-        setCallInfo({
-          callSid: data.currentCall.callSid || undefined,
-          callerName: data.currentCall.callerName || 'Unknown Caller',
-          phoneNumber: data.currentCall.from || 'Unknown Number',
-          startTime: data.currentCall.startTime || new Date().toISOString(),
-          status: data.currentCall.status || 'idle'
-        });
-      } else if (data.type === 'incoming-call') {
-        setCallInfo({
-          callSid: data.callSid || undefined,
-          callerName: data.callerName || 'Unknown Caller',
-          phoneNumber: data.from || 'Unknown Number',
-          startTime: new Date().toISOString(),
-          status: 'ringing'
-        });
-      } else if (data.type === 'call-status-update') {
-        setCallInfo(prev => ({ ...prev, status: data.status }));
+    async function connect() {
+      try {
+        if (eventSource) {
+          eventSource.close();
+        }
+
+        eventSource = new EventSource('/api/twilio/events');
+        console.log('Connecting to event stream...');
+
+        eventSource.onopen = () => {
+          console.log('Event stream connected');
+        };
+
+        eventSource.onmessage = (event) => {
+          if (!mounted) return;
+
+          try {
+            const data = JSON.parse(event.data);
+            console.log('Event received:', data);
+
+            if (data.type === 'initial-state') {
+              setCallInfo({
+                callSid: data.callSid,
+                callerName: data.callerName || 'No Active Call',
+                phoneNumber: data.from || '',
+                startTime: data.startTime || '',
+                status: data.status || 'idle',
+                transcript: data.transcript,
+                confidence: data.confidence
+              });
+            } else if (data.type === 'incoming-call' && data.callSid) {
+              setCallInfo({
+                callSid: data.callSid,
+                callerName: data.callerName || 'Unknown Caller',
+                phoneNumber: data.from || 'Unknown Number',
+                startTime: new Date().toISOString(),
+                status: 'ringing'
+              });
+            } else if (data.type === 'call-status-update' && data.callSid) {
+              setCallInfo(prev => {
+                if (prev.callSid !== data.callSid) return prev;
+                return {
+                  ...prev,
+                  status: data.status || prev.status,
+                  ...(data.status === 'completed' ? { transcript: undefined, confidence: undefined } : {})
+                };
+              });
+            } else if (data.type === 'call-transcription' && data.callSid && data.transcript) {
+              setCallInfo(prev => {
+                if (prev.callSid !== data.callSid) return prev;
+                return {
+                  ...prev,
+                  transcript: data.transcript,
+                  confidence: data.confidence
+                };
+              });
+            }
+          } catch (error) {
+            console.error('Error processing event:', error);
+          }
+        };
+
+        eventSource.onerror = (error) => {
+          console.error('Event stream error:', error);
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          
+          if (mounted) {
+            // Attempt to reconnect after a delay
+            setTimeout(connect, 2000);
+          }
+        };
+      } catch (error) {
+        console.error('Failed to connect to event stream:', error);
+        if (mounted) {
+          setTimeout(connect, 2000);
+        }
       }
-    };
+    }
 
-    eventSource.onerror = (error) => {
-      console.error('EventSource error:', error);
-    };
+    connect();
 
     return () => {
-      eventSource.close();
+      mounted = false;
+      if (eventSource) {
+        console.log('Closing event stream connection');
+        eventSource.close();
+        eventSource = null;
+      }
     };
   }, []);
 
@@ -63,13 +127,15 @@ export default function Home() {
         const response = await fetch(`/api/twilio/call-status?callSid=${callInfo.callSid}`);
         const data = await response.json();
         
-        setCallInfo(prev => ({
-          ...prev,
-          status: data.status
-        }));
+        if (data.status) {
+          setCallInfo(prev => ({
+            ...prev,
+            status: data.status
+          }));
 
-        if (data.status === 'completed') {
-          clearInterval(intervalId);
+          if (data.status === 'completed') {
+            clearInterval(intervalId);
+          }
         }
       } catch (error) {
         console.error('Error polling call status:', error);
@@ -146,10 +212,29 @@ export default function Home() {
         {/* Live Transcript */}
         <div className="bg-white rounded-lg p-6 shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Live Transcript</h3>
-          <div className="min-h-[200px] p-4 bg-gray-50 rounded-lg text-gray-500 flex items-center justify-center">
-            {callInfo.status === 'in-progress' ? 
-              'Transcribing...' : 
-              'Transcript will appear here during the call...'}
+          <div className="min-h-[200px] p-4 bg-gray-50 rounded-lg text-gray-500">
+            {callInfo.status === 'in-progress' ? (
+              <div>
+                {callInfo.transcript ? (
+                  <div className="space-y-2">
+                    <p className="text-gray-700">{callInfo.transcript}</p>
+                    {callInfo.confidence && (
+                      <p className="text-sm text-gray-500">
+                        Confidence: {Math.round(callInfo.confidence * 100)}%
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <p>Waiting for speech...</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p>Transcript will appear here during the call...</p>
+              </div>
+            )}
           </div>
         </div>
       </main>
