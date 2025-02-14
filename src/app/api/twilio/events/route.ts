@@ -7,6 +7,7 @@ export async function GET(request: Request) {
   const origin = request.headers.get('origin') || '*';
   const encoder = new TextEncoder();
   let streamController: ReadableStreamDefaultController;
+  let keepAliveInterval: NodeJS.Timeout;
 
   const stream = new ReadableStream({
     start(controller) {
@@ -22,25 +23,32 @@ export async function GET(request: Request) {
         })
       };
 
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(initialState)}\n\n`));
+      try {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(initialState)}\n\n`));
+      } catch (e) {
+        console.error('Error sending initial state:', e);
+        clients.delete(controller);
+        return;
+      }
 
       // Send a keep-alive comment every 15 seconds
-      const keepAlive = setInterval(() => {
+      keepAliveInterval = setInterval(() => {
+        if (!clients.has(controller)) {
+          clearInterval(keepAliveInterval);
+          return;
+        }
+
         try {
           controller.enqueue(encoder.encode(': keep-alive\n\n'));
         } catch (e) {
           console.error('Error sending keep-alive:', e);
-          clearInterval(keepAlive);
+          clearInterval(keepAliveInterval);
           clients.delete(controller);
         }
       }, 15000);
-
-      return () => {
-        clearInterval(keepAlive);
-        clients.delete(controller);
-      };
     },
     cancel() {
+      clearInterval(keepAliveInterval);
       clients.delete(streamController);
     },
   });

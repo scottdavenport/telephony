@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import twilio from 'twilio';
 import { headers } from 'next/headers';
 import { broadcastEvent } from '@/lib/events';
+import { saveTranscript } from '@/lib/transcripts';
 
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -31,6 +32,23 @@ export async function POST(request: Request) {
     const from = params.get('From');
     const callerName = params.get('CallerName') || 'Unknown Caller';
     const callStatus = params.get('CallStatus');
+    const transcriptionText = params.get('TranscriptionText');
+    const confidence = params.get('Confidence');
+
+    // Save transcript if available
+    if (transcriptionText && callSid) {
+      try {
+        await saveTranscript({
+          callSid,
+          transcript: transcriptionText,
+          confidence,
+          from,
+          callerName,
+        });
+      } catch (error) {
+        console.error('Error saving transcript:', error);
+      }
+    }
 
     // Generate TwiML response
     const twiml = new twilio.twiml.VoiceResponse();
@@ -40,10 +58,10 @@ export async function POST(request: Request) {
     // Broadcast call information to connected clients
     broadcastEvent({
       type: 'incoming-call',
-      callSid,
-      from,
-      callerName,
-      status: callStatus
+      callSid: callSid || undefined,
+      from: from || undefined,
+      callerName: callerName || undefined,
+      status: callStatus || undefined
     });
 
     return new NextResponse(twiml.toString(), {
