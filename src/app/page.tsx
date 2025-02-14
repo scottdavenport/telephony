@@ -94,6 +94,13 @@ export default function Home() {
           }
           
           if (mounted) {
+            // Reset call info to idle state
+            setCallInfo({
+              callerName: 'No Active Call',
+              phoneNumber: '',
+              startTime: '',
+              status: 'idle'
+            });
             // Attempt to reconnect after a delay
             setTimeout(connect, 2000);
           }

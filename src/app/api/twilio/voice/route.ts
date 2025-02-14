@@ -17,9 +17,9 @@ export async function POST(request: Request) {
     // Broadcast the call event to the UI
     broadcastEvent({
       type: 'incoming-call',
-      callSid: callSid || null,
-      from: from || null,
-      callerName: callerName || null,
+      callSid: callSid || undefined,
+      from: from || undefined,
+      callerName: callerName || undefined,
       status: 'ringing',
       startTime: new Date().toISOString()
     });
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     
     // Add gather for user input with transcription
     const gather = twiml.gather({
-      input: 'speech',
+      input: ['speech'],
       timeout: 3,
       action: '/api/twilio/voice/gather',
       method: 'POST',

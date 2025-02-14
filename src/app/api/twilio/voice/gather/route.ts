@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import VoiceResponse from 'twilio/lib/twiml/VoiceResponse';
 import { broadcastEvent } from '@/lib/events';
+import { db } from '@/lib/db';
+import { callTranscripts } from '@/lib/schema';
 
 export async function POST(request: Request) {
   try {
@@ -14,19 +16,28 @@ export async function POST(request: Request) {
     const confidence = params.get('Confidence');
 
     // Log transcription
-    if (speechResult) {
+    if (speechResult && callSid) {
       console.log('Speech detected:', {
         callSid,
         speechResult,
         confidence
       });
 
+      // Store transcript in database
+      await db.insert(callTranscripts).values({
+        callSid,
+        transcript: speechResult,
+        confidence: confidence || undefined,
+        from: from || undefined,
+        callerName: callerName || undefined,
+      });
+
       // Broadcast transcription event
       broadcastEvent({
         type: 'call-transcription',
-        callSid: callSid || null,
-        from: from || null,
-        callerName: callerName || null,
+        callSid: callSid || undefined,
+        from: from || undefined,
+        callerName: callerName || undefined,
         status: 'transcribing',
         transcript: speechResult,
         confidence: parseFloat(confidence || '0')
@@ -36,9 +47,9 @@ export async function POST(request: Request) {
     // Broadcast call status
     broadcastEvent({
       type: 'call-status-update',
-      callSid: callSid || null,
-      from: from || null,
-      callerName: callerName || null,
+      callSid: callSid || undefined,
+      from: from || undefined,
+      callerName: callerName || undefined,
       status: 'in-progress'
     });
 
@@ -47,7 +58,7 @@ export async function POST(request: Request) {
     
     // Add gather for continuous interaction with transcription
     const gather = twiml.gather({
-      input: 'speech',
+      input: ['speech'],
       timeout: 10,
       action: '/api/twilio/voice/gather',
       method: 'POST',
